@@ -29,6 +29,14 @@ export interface CacheStats {
   hitRate: string;
 }
 
+export interface Order {
+  id: number;
+  productId: number;
+  quantity: number;
+  status: string;
+  createdAt: string;
+}
+
 export type ResponseSource = "REDIS" | "POSTGRES" | "UNKNOWN";
 
 export interface TelemetryEvent {

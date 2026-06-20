@@ -26,6 +26,12 @@ export default function Navbar() {
 
             {user ? (
               <div className="flex items-center gap-3">
+                <Link
+                  href="/orders"
+                  className="font-mono text-xs text-ink-soft transition-colors hover:text-ink"
+                >
+                  My Orders
+                </Link>
                 <span className="font-mono text-xs text-ink">{user.username}</span>
                 <button
                   type="button"

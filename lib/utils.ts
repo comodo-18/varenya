@@ -8,6 +8,18 @@ export function formatPrice(price: number): string {
   }).format(price);
 }
 
+export function formatDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export type SourceKind = "redis" | "postgres" | "unknown";
 
 export function classifySource(source: string | null | undefined): SourceKind {

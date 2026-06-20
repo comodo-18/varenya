@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { Order } from "./types";
 
 const ORDER_URL = process.env.NEXT_PUBLIC_ORDER_URL;
 
@@ -133,4 +134,15 @@ export async function placeOrder(
     body = undefined;
   }
   return { ok: res.ok, status: res.status, latencyMs, body };
+}
+
+export async function getMyOrders(): Promise<Order[]> {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${ORDER_URL}/api/orders/my`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to load orders: ${res.status}`);
+  return res.json();
 }
