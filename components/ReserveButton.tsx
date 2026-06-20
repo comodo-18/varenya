@@ -3,7 +3,9 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import { fetcher, inventoryUrl, reserveStock } from "@/lib/api";
+import { fetcher, inventoryUrl } from "@/lib/api";
+import { useAuth, placeOrder } from "@/lib/auth";
+import AuthModal from "./AuthModal";
 import type { InventoryItem, TelemetryEvent } from "@/lib/types";
 
 type ReserveState = "idle" | "loading" | "success" | "error";
@@ -28,62 +30,88 @@ export default function ReserveButton({ productId, initialStock, onReserve }: Re
   });
 
   const stock = data?.stock ?? initialStock;
+  const { user } = useAuth();
 
   const [quantity, setQuantity] = useState(1);
   const [state, setState] = useState<ReserveState>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
 
   const outOfStock = stock <= 0;
 
   async function handleReserve() {
     if (outOfStock || state === "loading") return;
+
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
+
     setState("loading");
     setMessage(null);
+    setOrderId(null);
 
-    const result = await reserveStock(productId, quantity);
+    try {
+      const result = await placeOrder(productId, quantity);
 
-    if (result.ok) {
-      const newStock = result.body?.stock ?? Math.max(stock - quantity, 0);
-      setState("success");
-      setMessage(`LOCK_ACQUIRED → stock ${stock}→${newStock} → LOCK_RELEASED ${result.latencyMs}ms`);
-      mutate({
-        id: data?.id ?? 0,
-        productId,
-        stock: newStock,
-        status: data?.status ?? "",
-        lastUpdated: new Date().toISOString(),
-      });
-      onReserve?.({
-        method: "POST",
-        path: "/reserve",
-        status: "RESERVED",
-        source: "redisson",
-        latencyMs: result.latencyMs,
-        detail: `stock: ${newStock} left`,
-        timestamp: Date.now(),
-      });
-    } else {
+      if (result.ok) {
+        const newStock = Math.max(stock - quantity, 0);
+        const id = result.body?.id ?? result.body?.orderId;
+        setState("success");
+        setOrderId(id != null ? String(id) : null);
+        setMessage(
+          `ORDER_PLACED → stock ${stock}→${newStock} → ${result.latencyMs}ms`
+        );
+        mutate({
+          id: data?.id ?? 0,
+          productId,
+          stock: newStock,
+          status: data?.status ?? "",
+          lastUpdated: new Date().toISOString(),
+        });
+        onReserve?.({
+          method: "POST",
+          path: "/api/orders",
+          status: "ORDERED",
+          source: "order-service",
+          latencyMs: result.latencyMs,
+          detail: `order placed, stock: ${newStock} left`,
+          timestamp: Date.now(),
+        });
+      } else {
+        setState("error");
+        const reason =
+          typeof result.body?.message === "string"
+            ? result.body.message
+            : "Order failed";
+        setMessage(reason);
+        onReserve?.({
+          method: "POST",
+          path: "/api/orders",
+          status: "REJECTED",
+          latencyMs: result.latencyMs,
+          detail: reason,
+          timestamp: Date.now(),
+        });
+      }
+    } catch {
       setState("error");
-      setMessage("Insufficient stock");
-      onReserve?.({
-        method: "POST",
-        path: "/reserve",
-        status: "REJECTED",
-        latencyMs: result.latencyMs,
-        detail: "insufficient stock",
-        timestamp: Date.now(),
-      });
+      setMessage("Network error");
     }
 
     setTimeout(() => {
       setState("idle");
       setMessage(null);
-    }, 2200);
+      setOrderId(null);
+    }, 3000);
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="font-mono text-xs uppercase tracking-wider text-ink-soft">Reserve</p>
+      <p className="font-mono text-xs uppercase tracking-wider text-ink-soft">
+        {user ? "Place order" : "Reserve"}
+      </p>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center rounded-full border border-hairline bg-white">
           <button
@@ -126,14 +154,31 @@ export default function ReserveButton({ productId, initialStock, onReserve }: Re
           {state === "loading" && (
             <span className="inline-flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-porcelain" />
-              Acquiring lock…
+              Placing order…
             </span>
           )}
-          {state === "success" && "Reserved!"}
-          {state === "error" && "Insufficient stock"}
-          {state === "idle" && (outOfStock ? "Out of stock" : "Reserve stock")}
+          {state === "success" && "Order placed!"}
+          {state === "error" && "Order failed"}
+          {state === "idle" &&
+            (outOfStock
+              ? "Out of stock"
+              : user
+                ? "Place order"
+                : "Sign in to order")}
         </motion.button>
       </div>
+
+      {orderId && state === "success" && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-lg border border-mint/40 bg-mint/10 px-3 py-2"
+        >
+          <p className="font-mono text-xs text-moss-dark">
+            Order confirmed — #{orderId}
+          </p>
+        </motion.div>
+      )}
 
       {message && (
         <motion.p
@@ -144,6 +189,8 @@ export default function ReserveButton({ productId, initialStock, onReserve }: Re
           {message}
         </motion.p>
       )}
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }
