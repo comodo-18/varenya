@@ -4,8 +4,20 @@ import Link from "next/link";
 import useSWR from "swr";
 import { motion } from "framer-motion";
 import { useAuth, getMyOrders } from "@/lib/auth";
+import { fetcher } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import type { Order } from "@/lib/types";
+import type { Order, Product } from "@/lib/types";
+
+const CATALOG_URL = process.env.NEXT_PUBLIC_CATALOG_URL;
+
+function useProductName(productId: number): string {
+  const { data } = useSWR<Product>(
+    `${CATALOG_URL}/api/products/${productId}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+  return data?.name ?? `Product #${productId}`;
+}
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status?.toUpperCase() ?? "";
@@ -36,11 +48,41 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+function OrderCard({ order, index }: { order: Order; index: number }) {
+  const productName = useProductName(order.productId);
+
+  return (
+    <motion.li
+      key={order.id}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.4) }}
+      className="rounded-2xl border border-hairline bg-white p-5 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-ink-soft">
+            Order
+          </p>
+          <p className="font-heading text-lg font-medium text-ink">#{order.id}</p>
+        </div>
+        <StatusBadge status={order.status} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs text-ink-soft">
+        <span className="text-ink font-medium">{productName}</span>
+        <span>
+          Qty <span className="text-ink">{order.quantity}</span>
+        </span>
+        <span>{formatDate(order.createdAt)}</span>
+      </div>
+    </motion.li>
+  );
+}
+
 export default function OrderHistory() {
   const { user, token } = useAuth();
 
-  // Keyed on the token so the list refetches when the user logs in/out.
-  // A null key keeps SWR idle while signed out — no spurious loading state.
   const { data, error, isLoading } = useSWR<Order[]>(
     token ? ["my-orders", token] : null,
     getMyOrders,
@@ -107,33 +149,7 @@ export default function OrderHistory() {
   return (
     <ul className="flex flex-col gap-3">
       {sorted.map((order, index) => (
-        <motion.li
-          key={order.id}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.4) }}
-          className="rounded-2xl border border-hairline bg-white p-5 shadow-sm"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-mono text-[11px] uppercase tracking-wider text-ink-soft">
-                Order
-              </p>
-              <p className="font-heading text-lg font-medium text-ink">#{order.id}</p>
-            </div>
-            <StatusBadge status={order.status} />
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs text-ink-soft">
-            <span>
-              Product <span className="text-ink">#{order.productId}</span>
-            </span>
-            <span>
-              Qty <span className="text-ink">{order.quantity}</span>
-            </span>
-            <span>{formatDate(order.createdAt)}</span>
-          </div>
-        </motion.li>
+        <OrderCard key={order.id} order={order} index={index} />
       ))}
     </ul>
   );
